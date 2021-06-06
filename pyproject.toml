@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "notion-static-cms"
+version = "0.1.0"
+description = "Use Notion as a CMS for static website building"
+authors = ["Trevor Muñoz <tmunoz@umd.edu>"]
+license = "ISC"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+typer = {extras = ["all"], version = "^0.3.2"}
+httpx = "^0.18.1"
+
+[tool.poetry.dev-dependencies]
+black = "^21.5b2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
