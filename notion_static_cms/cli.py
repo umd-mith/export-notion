@@ -1,3 +1,4 @@
+import json
 import typer
 import httpx
 from httpx import HTTPStatusError
@@ -133,13 +134,15 @@ def output_callback(value: Path):
     return value
 
 
-def writer(pageobj: dict[str, str], output_path: Path):
-    outfile = f"{'-'.join(pageobj['title'].lower().split())}.md"
+def writer(pageobj: dict[str, str], output_path: Path, custom_meta={}):
+    frontmatter = {**pageobj["page-meta"], **custom_meta}
+
+    outfile = f"{'-'.join(frontmatter['title'].lower().split())}.md"
+
     with open(Path(output_path / outfile), "w") as mdfile:
         mdfile.write("---")
-        mdfile.write(f"\ntitle: {pageobj['title']}")
-        mdfile.write(f"\nnotion_id: {pageobj['page_id']}")
-        mdfile.write(f"\nlast_modified_time: {pageobj['last_modified_time']}")
+        for key, value in frontmatter.items():
+            mdfile.write(f"\n{key}: {value}")
         mdfile.write("\n---")
         mdfile.write(f"\n{pageobj['content']}")
 
@@ -158,6 +161,11 @@ def main(
         "curl/7.64.1", help="User-agent string for requests"
     ),
     http_timeout: int = typer.Argument(5, help="Timeout (in seconds) for API requests"),
+    frontmatter: str = typer.Option(
+        "",
+        help="Pass a JSON object as a string to include in frontmatter of generated markdown",
+        show_default=False,
+    ),
     key: str = typer.Argument(..., envvar="NOTION_API_KEY"),
 ):
     """Export Notion content to a directory of local markdown files."""
@@ -170,7 +178,8 @@ def main(
 
     out_dir = Path(output_path).resolve()
     for page in get_db_pages(client, database):
-        pagedata = {}
+        pagedata = {"page-meta": {}}
+
         try:
             if isinstance(page, list):
                 # TODO: Handle multiple top-level pages
@@ -181,9 +190,9 @@ def main(
 
             name = page["properties"]["Name"]
             if name["type"] == "title":
-                pagedata["title"] = name["title"][0]["plain_text"]
-            pagedata["page_id"] = page["id"]
-            pagedata["last_modified_time"] = page["last_edited_time"]
+                pagedata["page-meta"]["title"] = name["title"][0]["plain_text"]
+            pagedata["page-meta"]["page_id"] = page["id"]
+            pagedata["page-meta"]["last_modified_time"] = page["last_edited_time"]
 
             page_content = get_page_contents(client, page["id"])
             pagebody = []
@@ -197,7 +206,11 @@ def main(
 
             pagedata["content"] = "".join(pagebody)
 
-            writer(pagedata, output_path)
+            if frontmatter:
+                md_opts = json.loads(frontmatter)
+                writer(pagedata, output_path, md_opts)
+            else:
+                writer(pagedata, output_path)
 
         except HTTPStatusError as err:
             err_report_base = typer.style(
