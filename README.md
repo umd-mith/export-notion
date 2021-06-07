@@ -8,7 +8,7 @@ Export data stored in Notion for a static website
 
 You'll need a Notion [Internal Integration Token](https://developers.notion.com/docs/getting-started#create-a-new-integration). The best way to use this is to set it as an environment variable called `NOTION_API_KEY`.
 
-Install in a virtual environment of your choice using the tarball:
+Install in a virtual environment of your choice using the [tarball](https://github.com/umd-mith/export-notion/releases):
 
 ```
 pip install PATH/TO/TARBALL
