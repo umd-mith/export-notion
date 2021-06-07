@@ -1,14 +1,19 @@
 [tool.poetry]
-name = "notion-static-cms"
-version = "0.1.0"
-description = "Use Notion as a CMS for static website building"
+name = "export-notion"
+version = "0.1.6"
+description = "Use Notion as a CMS for the Lakeland Digital Archive website"
 authors = ["Trevor Muñoz <tmunoz@umd.edu>"]
 license = "ISC"
+readme = "README.md"
+
+[tool.poetry.scripts]
+export-notion-pages = "export_notion.cli:app"
 
 [tool.poetry.dependencies]
 python = "^3.9"
 typer = {extras = ["all"], version = "^0.3.2"}
 httpx = "^0.18.1"
+Markdown = "^3.3.4"
 
 [tool.poetry.dev-dependencies]
 black = "^21.5b2"

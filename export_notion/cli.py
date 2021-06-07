@@ -4,6 +4,9 @@ import httpx
 from httpx import HTTPStatusError
 import time
 from pathlib import Path
+from markdown import markdown
+
+app = typer.Typer()
 
 
 def create_client(
@@ -67,7 +70,7 @@ def check_annotations(textobject: dict[str, str]):
         return None
 
 
-def handle_heading_3(content):
+def handle_heading(content: list[str], lvl: int):
     if len(content) > 1:
         raise RuntimeError(f"Heading error. Expect length 1, got length {len(content)}")
 
@@ -75,10 +78,12 @@ def handle_heading_3(content):
     if text["type"] != "text":
         raise RuntimeError("Unhandled type")
 
+    header_string = "#" * lvl
+
     if not text["text"]["link"]:
-        return f"### {text['text']['content']}\n"
+        return f"{header_string} {text['text']['content']}\n"
     else:
-        return f"### [{text['text']['content']}]({text['text']['link']['url']})\n"
+        return f"{header_string} [{text['text']['content']}]({text['text']['link']['url']})\n"
 
 
 def handle_bulleted_list_item(content):
@@ -97,6 +102,7 @@ def handle_bulleted_list_item(content):
         return f"* [{text['text']['content']}]({text['text']['link']['url']})\n"
 
 
+# TODO: Apply annotations, if any
 def handle_subtext(text):
     if not text["text"]["link"]:
         return f"{text['text']['content']}"
@@ -116,14 +122,47 @@ def process_block(blk: dict[str, object]):
     blk_type = blk.get("type")
     blk_body = blk[blk_type]["text"]
 
+    if blk_type == "heading_1":
+        blk_content = handle_heading(blk_body, lvl=1)
+    if blk_type == "heading_2":
+        blk_content = handle_heading(blk_body, lvl=2)
     if blk_type == "heading_3":
-        blk_content = handle_heading_3(blk_body)
+        blk_content = handle_heading(blk_body, lvl=3)
     if blk_type == "paragraph":
         blk_content = handle_paragraph(blk_body)
     if blk_type == "bulleted_list_item":
         blk_content = handle_bulleted_list_item(blk_body)
 
     return blk_content
+
+
+def compare_edit_times(timestr: str, pagedata: dict[str, str]):
+    time_fmt = "%Y-%m-%dT%H:%M:%S.%f%z"
+    current_time = time.strptime(pagedata["page-meta"]["last_modified_time"], time_fmt)
+    new_time = time.strptime(timestr, time_fmt)
+
+    if new_time > current_time:
+        return timestr
+    else:
+        return None
+
+
+def writer(
+    pageobj: dict[str, str], output_path: Path, custom_meta={}, index: bool = False
+):
+    frontmatter = {**pageobj["page-meta"], **custom_meta}
+
+    if index:
+        outfile = "index.md"
+    else:
+        outfile = f"{'-'.join(frontmatter['title'].lower().split())}.md"
+
+    with open(Path(output_path / outfile), "w") as mdfile:
+        mdfile.write("---")
+        for key, value in frontmatter.items():
+            mdfile.write(f"\n{key}: {value}")
+        mdfile.write("\n---")
+        mdfile.write(f"\n{pageobj['content']}")
 
 
 def output_callback(value: Path):
@@ -134,19 +173,7 @@ def output_callback(value: Path):
     return value
 
 
-def writer(pageobj: dict[str, str], output_path: Path, custom_meta={}):
-    frontmatter = {**pageobj["page-meta"], **custom_meta}
-
-    outfile = f"{'-'.join(frontmatter['title'].lower().split())}.md"
-
-    with open(Path(output_path / outfile), "w") as mdfile:
-        mdfile.write("---")
-        for key, value in frontmatter.items():
-            mdfile.write(f"\n{key}: {value}")
-        mdfile.write("\n---")
-        mdfile.write(f"\n{pageobj['content']}")
-
-
+@app.command()
 def main(
     database: str = typer.Argument(
         ...,
@@ -197,10 +224,26 @@ def main(
             page_content = get_page_contents(client, page["id"])
             pagebody = []
             for block in page_content:
+                # Treat child pages as sections
                 if block["has_children"] is not False:
+                    if block["type"] == "child_page" and "child_page" in block:
+                        updated_time = compare_edit_times(
+                            block["last_edited_time"], pagedata
+                        )
+                        if updated_time:
+                            pagedata["page-meta"]["last_modified_time"] = updated_time
+
+                        pagebody.append("\n<section>")
+                        pagebody.append(f"\n<h2>{block['child_page']['title']}</h2>")
                     child_content = get_page_contents(client, block["id"])
+                    sectionbody = []
                     for c in child_content:
-                        pagebody.append(process_block(c))
+                        sectionbody.append(process_block(c))
+
+                    # since it's wrapped in a section have to convert md to html
+                    section_html = markdown("\n".join(sectionbody))
+                    pagebody.append(f"\n{section_html}")
+                    pagebody.append("\n</section>")
                 else:
                     pagebody.append(process_block(block))
 
@@ -208,9 +251,9 @@ def main(
 
             if frontmatter:
                 md_opts = json.loads(frontmatter)
-                writer(pagedata, output_path, md_opts)
+                writer(pagedata, out_dir, md_opts, index=True)
             else:
-                writer(pagedata, output_path)
+                writer(pagedata, out_dir, {}, index=True)
 
         except HTTPStatusError as err:
             err_report_base = typer.style(
@@ -218,7 +261,3 @@ def main(
             )
             typer.echo(err_report_base + err)
             raise typer.Exit(code=1)
-
-
-if __name__ == "__main__":
-    typer.run(main)
